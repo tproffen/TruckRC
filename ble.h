@@ -103,9 +103,6 @@ int gattWriteCallback(uint16_t value_handle, uint8_t *buffer, uint16_t size) {
     else if (characteristic1_data[0] == 0x03) { // Command 3: drive and throttle 
       truckController(characteristic1_data[1],characteristic1_data[2]);
     }
-    else if (characteristic1_data[0] == 0x04) { // Command 4: sounds 
-      truckSounds(characteristic1_data[1],characteristic1_data[2]);
-    }
     else if (characteristic1_data[0] == 0xFF) { // Command 255: Stop and reset 
       truckReset();
     }

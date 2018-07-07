@@ -5,14 +5,13 @@
  * Commands 
  *     0x01 - Operate lights, Parameters: light, status
  *     0x02 - Set gear, Parameters: gear
- *     0x03 - Drive, ParametersL stree, throttle
+ *     0x03 - Drive, Parameters: stear, throttle
  *     0xFF - Reset
  *------------------------------------------------------------------------------
  */
 
 SYSTEM_MODE(SEMI_AUTOMATIC);
 
-#include <DFRobotDFPlayerMini.h>
 #include "ESC.h"
 
 // Toogle debug output
@@ -44,11 +43,8 @@ Servo gearServo;
 // ESC
 ESC esc(ESC::MODE_FORWARD_BACKWARD);
 
-// Sound
-DFRobotDFPlayerMini myDFPlayer;
-
 // Conversions
-static int gearAngle[3] = {120, 90, 60};    // Servo angles for gears
+static int gearAngle[3] = {20, 110, 160};   // Servo angles for gears
 static int maxSteer = 65;                   // Maximum Steer angle
 static long maxThrottle = 250;              // Maximum power (500=100%)
 
@@ -86,21 +82,6 @@ void truckLightController(uint8_t light, uint8_t status) {
     }
     else if (light == FOG_LIGHTS) {
          lightToggle(FOG_LIGHT_PIN, status);
-    }
-}
-
-/*------------------------------------------------------------------------------
- * Truck controller routines
- *------------------------------------------------------------------------------
- */
-void truckSounds(uint8_t sound, uint8_t status) {
- 
-    if (status == 1) {
-        myDFPlayer.loop(sound);
-    }
-    else 
-    {
-        myDFPlayer.stop();    
     }
 }
 
@@ -186,10 +167,6 @@ void truckReset() {
     steerServo.write(90);
     gearServo.write(90);
     esc.setSpeed(0);
-    
-    if(myDFPlayer.available()) { 
-        myDFPlayer.stop();
-    }
 }
 
 //------------------------------------------------------------------------------
@@ -199,25 +176,6 @@ void lightToggle(uint8_t pin, uint8_t status) {
         digitalWrite(pin, HIGH);
     else
         digitalWrite(pin, LOW);
-}
-
-//------------------------------------------------------------------------------
-void setupSound() {
-    
-    // Setting up sound player
-    Serial1.begin(9600);
-
-    unsigned long startedWaiting = millis();
-    while((!myDFPlayer.begin(Serial1)) && millis() - startedWaiting <= 5000)
-    {
-        delay(500);
-    }
-    
-    if (debug) {
-        Particle.publish ("status","DFPlayer Mini online");
-    }
-  
-    myDFPlayer.volume(25);
 }
 
 /*------------------------------------------------------------------------------
@@ -238,6 +196,17 @@ long setThrottle(String command) {
         esc.setDirection(ESC::BACKWARD);
         esc.setSpeed(-number);
     }
+    return number;
+}
+
+long setGear(String command) {
+    
+    long number = (long) strtol(&command[0], NULL, 10);
+    
+    if (number>0 && number<180) {
+        gearServo.write(number);
+    }
+    
     return number;
 }
 
@@ -266,15 +235,15 @@ void setup() {
     
     // Bluetooth setup
     setupBLE();
-
-    // Setting up sound player
-    setupSound();
     
     // Reset everything to starting values
     truckReset();
   
     // Publish test functions
-    Particle.function("throttle",setThrottle);
+    if(debug) {
+        Particle.function("throttle",setThrottle);
+        Particle.function("gear",setGear);
+    }
 }
 
 /*------------------------------------------------------------------------------
