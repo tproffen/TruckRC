@@ -1,4 +1,3 @@
-
 /*------------------------------------------------------------------------------
  * BLE Truck Controller
  * (c) Thomas Proffen, 2018
@@ -10,7 +9,11 @@
  *     0xFF - Reset
  *------------------------------------------------------------------------------
  */
+
+SYSTEM_MODE(SEMI_AUTOMATIC);
+
 #include <DFRobotDFPlayerMini.h>
+#include "ESC.h"
 
 // Toogle debug output
 static bool debug = true;
@@ -25,29 +28,37 @@ static bool debug = true;
 #define MAIN_LIGHTS_PIN             D3
 #define HIGH_BEAM_PIN               D4
 #define REVERSE_LIGHT_PIN           D5
+#define POSITION_LIGHT_PIN          D6
+#define FOG_LIGHT_PIN               D7
 
 // Define light commands
 #define MAIN_LIGHTS         1
 #define HIGH_BEAM           2
 #define HAZARD_FLASHERS     3
+#define FOG_LIGHTS          4
 
 // Servos
 Servo steerServo;
-Servo throttleServo;
 Servo gearServo;
+
+// ESC
+ESC esc(ESC::MODE_FORWARD_BACKWARD);
 
 // Sound
 DFRobotDFPlayerMini myDFPlayer;
 
 // Conversions
-static int gearAngle[3] = {105, 90, 75}; // Servo angles for gears
-
+static int gearAngle[3] = {120, 90, 60};    // Servo angles for gears
+static int maxSteer = 65;                   // Maximum Steer angle
+static long maxThrottle = 250;              // Maximum power (500=100%)
 
 // Some globals
 static bool blink_left = false;
 static bool blink_right = false;
 static bool blink_both = false;
-static uint8_t oldThrottle = 0;
+static bool lights_on = false;
+static long oldThrottle = 0;
+static long oldLight = 0;
 
 // Include BLE code
 #include "ble.h"
@@ -60,6 +71,10 @@ void truckLightController(uint8_t light, uint8_t status) {
  
     if (light == MAIN_LIGHTS) {
         lightToggle(MAIN_LIGHTS_PIN, status);
+        lightToggle(POSITION_LIGHT_PIN, status);
+        if (status) {oldLight=64;} else {oldLight=0;}
+        analogWrite(BREAK_LIGHTS_PIN, oldLight);
+        
     }
     else if (light == HIGH_BEAM) {
         lightToggle(HIGH_BEAM_PIN, status);
@@ -68,6 +83,9 @@ void truckLightController(uint8_t light, uint8_t status) {
         lightToggle(INDICATOR_LEFT_LIGHTS_PIN, status);
         lightToggle(INDICATOR_RIGHT_LIGHTS_PIN, status);
         blink_both = (status==0x01);
+    }
+    else if (light == FOG_LIGHTS) {
+         lightToggle(FOG_LIGHT_PIN, status);
     }
 }
 
@@ -87,12 +105,16 @@ void truckSounds(uint8_t sound, uint8_t status) {
 }
 
 //------------------------------------------------------------------------------
-void truckController(uint8_t steer, uint8_t throttle) {
+void truckController(uint8_t steerRaw, uint8_t throttleRaw) {
  
-    steerServo.write(steer);
-    throttleServo.write(throttle);
+    // Map values from app (0..255) to desired range.
     
-    // Indicators
+    long steer=map(steerRaw,0,255,90-maxSteer,90+maxSteer);
+    long throttle=map(throttleRaw,0,255,0,maxThrottle);
+     
+    // Steering and indicators numbers from 0-180 with 90 being neutral
+    steerServo.write(steer);
+    
     if (steer < 80) {
         blink_left = true;
     } 
@@ -106,34 +128,41 @@ void truckController(uint8_t steer, uint8_t throttle) {
         lightToggle(INDICATOR_RIGHT_LIGHTS_PIN, 0);
     }
     
-    // Going forward
-    if (throttle >=90) {
-        if (throttle < oldThrottle) {
-            lightToggle(BREAK_LIGHTS_PIN, 1);
-        }
-        else {
-            lightToggle(BREAK_LIGHTS_PIN, 0);
-        }
-        lightToggle(REVERSE_LIGHT_PIN, 0);
-    } 
-    // Going backwards
-    else 
-    {
-        if (throttle > oldThrottle) {
-            lightToggle(BREAK_LIGHTS_PIN, 1);
-        }
-        else {
-            lightToggle(BREAK_LIGHTS_PIN, 0);
-        }
-        lightToggle(REVERSE_LIGHT_PIN, 1);
+    // Throttle
+    esc.setSpeed(throttle);
+    
+    if (throttle < oldThrottle) {
+        analogWrite(BREAK_LIGHTS_PIN, 255);
+    }
+    else {
+        analogWrite(BREAK_LIGHTS_PIN, oldLight);
     }
     oldThrottle = throttle;
 }
 
 //------------------------------------------------------------------------------
-void truckGearController(uint8_t gear) {
+void truckGearController(uint8_t gear, uint8_t value) {
  
-    gearServo.write(gearAngle[gear-1]); 
+    // Reverse/Drive
+    
+    if (gear == 255) {
+        if (value == 1) {
+            esc.setSpeed(0);
+            esc.setDirection(ESC::BACKWARD);
+            lightToggle(REVERSE_LIGHT_PIN, 1);
+        } 
+        else {
+            esc.setSpeed(0);
+            esc.setDirection(ESC::FORWARD);
+            lightToggle(REVERSE_LIGHT_PIN, 0);
+        }
+    }
+    
+    // Gears 1,2,3
+    
+    else if (gear>=1 && gear<=3) {
+        gearServo.write(gearAngle[gear-1]); 
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -144,18 +173,23 @@ void truckReset() {
     blink_right = false;
     blink_both = false;
     
-    digitalWrite(BREAK_LIGHTS_PIN, LOW);
+    analogWrite(BREAK_LIGHTS_PIN, 0);
     digitalWrite(INDICATOR_LEFT_LIGHTS_PIN, LOW);
     digitalWrite(INDICATOR_RIGHT_LIGHTS_PIN, LOW);
     digitalWrite(MAIN_LIGHTS_PIN, LOW);
     digitalWrite(HIGH_BEAM_PIN, LOW);
     digitalWrite(REVERSE_LIGHT_PIN, LOW);
+    digitalWrite(POSITION_LIGHT_PIN, LOW);
+    digitalWrite(FOG_LIGHT_PIN, LOW);
+    
     
     steerServo.write(90);
-    throttleServo.write(90);
     gearServo.write(90);
+    esc.setSpeed(0);
     
-    myDFPlayer.stop();
+    if(myDFPlayer.available()) { 
+        myDFPlayer.stop();
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -187,32 +221,60 @@ void setupSound() {
 }
 
 /*------------------------------------------------------------------------------
+ * Calibration functions (called from cloud)
+ *------------------------------------------------------------------------------
+ */
+long setThrottle(String command) {
+
+    long number = (long) strtol(&command[0], NULL, 10);
+    
+    if (number>0) {
+        esc.setSpeed(0);
+        esc.setDirection(ESC::FORWARD);
+        esc.setSpeed(number);
+    }
+    else {
+        esc.setSpeed(0);
+        esc.setDirection(ESC::BACKWARD);
+        esc.setSpeed(-number);
+    }
+    return number;
+}
+
+/*------------------------------------------------------------------------------
  * Setup
  *------------------------------------------------------------------------------
  */
 void setup() {
 
-    // Bluetooth setup
-    setupBLE();
+    // Initialize servos and pins
+    esc.attach(THROTTLE_SERVO_PIN);
+    steerServo.attach(STEER_SERVO_PIN);
+    gearServo.attach(GEAR_SERVO_PIN);
 
-    // Initialize pins for lights.
     pinMode(BREAK_LIGHTS_PIN, OUTPUT);
     pinMode(INDICATOR_LEFT_LIGHTS_PIN, OUTPUT);
     pinMode(INDICATOR_RIGHT_LIGHTS_PIN, OUTPUT);
     pinMode(MAIN_LIGHTS_PIN, OUTPUT);
     pinMode(HIGH_BEAM_PIN, OUTPUT);
     pinMode(REVERSE_LIGHT_PIN, OUTPUT);
+    pinMode(POSITION_LIGHT_PIN, OUTPUT);    
+    pinMode(FOG_LIGHT_PIN, OUTPUT);    
+    
+    // Connect to particle cloud
+    Particle.connect();
+    
+    // Bluetooth setup
+    setupBLE();
 
-    // Servos (90 is center)
-    steerServo.attach(STEER_SERVO_PIN);
-    steerServo.write(90);
-    gearServo.attach(GEAR_SERVO_PIN);
-    gearServo.write(90);
-    throttleServo.attach(THROTTLE_SERVO_PIN);
-    throttleServo.write(90);
-  
     // Setting up sound player
     setupSound();
+    
+    // Reset everything to starting values
+    truckReset();
+  
+    // Publish test functions
+    Particle.function("throttle",setThrottle);
 }
 
 /*------------------------------------------------------------------------------

@@ -81,6 +81,7 @@ void deviceDisconnectedCallback(uint16_t handle) {
   if (debug) {
       Particle.publish("status", "BLE disconnected");
   }
+  truckReset();
 }
 
 /*------------------------------------------------------------------------------
@@ -97,7 +98,7 @@ int gattWriteCallback(uint16_t value_handle, uint8_t *buffer, uint16_t size) {
       truckLightController(characteristic1_data[1],characteristic1_data[2]);
     }
     else if (characteristic1_data[0] == 0x02) { // Command 2: sets gear (1,2,3)
-      truckGearController(characteristic1_data[1]);
+      truckGearController(characteristic1_data[1],characteristic1_data[2]);
     }
     else if (characteristic1_data[0] == 0x03) { // Command 3: drive and throttle 
       truckController(characteristic1_data[1],characteristic1_data[2]);
