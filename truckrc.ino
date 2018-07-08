@@ -44,7 +44,7 @@ Servo gearServo;
 ESC esc(ESC::MODE_FORWARD_BACKWARD);
 
 // Conversions
-static int gearAngle[3] = {20, 110, 160};   // Servo angles for gears
+static int gearAngle[3] = {10, 85, 170};   // Servo angles for gears
 static int maxSteer = 65;                   // Maximum Steer angle
 static long maxThrottle = 250;              // Maximum power (500=100%)
 
@@ -178,6 +178,18 @@ void lightToggle(uint8_t pin, uint8_t status) {
         digitalWrite(pin, LOW);
 }
 
+//------------------------------------------------------------------------------
+void readySignal() {
+
+    digitalWrite(INDICATOR_LEFT_LIGHTS_PIN, HIGH);
+    digitalWrite(INDICATOR_RIGHT_LIGHTS_PIN, HIGH);
+    
+    delay(1000);
+
+    digitalWrite(INDICATOR_LEFT_LIGHTS_PIN, LOW);
+    digitalWrite(INDICATOR_RIGHT_LIGHTS_PIN, LOW);
+}
+
 /*------------------------------------------------------------------------------
  * Calibration functions (called from cloud)
  *------------------------------------------------------------------------------
@@ -239,6 +251,9 @@ void setup() {
     // Reset everything to starting values
     truckReset();
   
+    // Flash to signal truck is ready
+    readySignal();
+    
     // Publish test functions
     if(debug) {
         Particle.function("throttle",setThrottle);
